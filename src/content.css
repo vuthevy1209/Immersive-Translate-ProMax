@@ -1,0 +1,53 @@
+ipm-translation {
+  display: block !important;
+  margin: 0.15em 0 0.55em !important;
+  padding: 0 !important;
+  border: 0 !important;
+  color: #9a4a2c !important; /* deep Claude clay: ~6:1 on white, and clearly apart from the original text */
+  font-style: normal !important;
+  text-align: start !important;
+  white-space: normal !important;
+  text-indent: 0 !important;
+  line-height: inherit;
+}
+
+ipm-translation[data-dark] {
+  color: #eba98e !important;
+}
+
+/* Hovered chunk: the page text (via CSS.highlights) and its part of the translation get the same Claude-orange marker. */
+::highlight(ipm-hover) {
+  background-color: rgb(217 119 87 / 0.25);
+}
+
+::highlight(ipm-hover-dark) {
+  background-color: rgb(217 119 87 / 0.4);
+}
+
+ipm-chunk {
+  border-radius: 3px;
+  transition: background-color 0.1s;
+}
+
+ipm-chunk[data-active] {
+  background-color: rgb(217 119 87 / 0.25);
+}
+
+ipm-translation[data-dark] ipm-chunk[data-active] {
+  background-color: rgb(217 119 87 / 0.4);
+}
+
+ipm-toast {
+  position: fixed !important;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid #3e3e38;
+  border-radius: 12px;
+  background: #262624;
+  color: #faf9f5;
+  font: 13px/1.45 system-ui, -apple-system, sans-serif;
+  box-shadow: 0 10px 28px rgb(20 20 19 / 0.25);
+}

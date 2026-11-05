@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ProMax demo</title>
+  <link rel="stylesheet" href="../src/content.css">
+  <style>
+    body { max-width: 760px; margin: 32px auto; padding: 0 16px; font: 17px/1.6 Georgia, serif; color: #1f2937; }
+    .passage { border: 1px solid #d1d5db; padding: 8px 20px; }
+    .row { display: flex; gap: 12px; }
+    .row span { flex: 1; background: #f9fafb; padding: 8px; }
+    table { border-collapse: collapse; }
+    td { border: 1px solid #d1d5db; padding: 6px 10px; }
+    .spacer { height: 1600px; }
+  </style>
+</head>
+<body>
+  <article class="passage">
+    <h2 id="title">Premier Art Auction Returns for Its 30th Year</h2>
+    <p id="p1">Regional collectors eager to acquire a significant piece of historical artwork will have plenty of opportunities at this year's Annual Melbourne Art Auction.
+      Celebrating its 30th year, organizers of this year's event have gathered an <b>extraordinary collection</b> of artwork that includes pieces by regional residents Chloe Delgado, Omar Berg, and <a href="#">Marcus Petrov.</a> The three painters, who were highly productive throughout their careers, achieved fame in their late 40s.</p>
+    <p id="p2">Mr. Petrov lived in Madrid with Dr. Lee. The paintings are expected to bring in over $2.5 million in total. "Will they sell?" the curator asked. <em>Nobody knows yet.</em></p>
+  </article>
+
+  <h3>Mixed content</h3>
+  <p id="address">Liam Fletcher<br>12 Collins St.<br>Melbourne VIC 3000</p>
+  <ul>
+    <li id="li1">The auction opens at 9 a.m. on Saturday. Doors close at noon.
+      <ul><li id="li2">Bring your catalogue. Registration is free.</li></ul>
+    </li>
+  </ul>
+  <table><tr><td id="td1">Estimated value is not guaranteed. Bids start low.</td><td>$12,500</td></tr></table>
+  <p id="vi">Ông ấy đã sáng tác vô số bức tranh trong đời.</p>
+  <pre id="code">const answer = 42; // This should not be translated.</pre>
+  <p id="ruby">The word <ruby>immerse<rt>i-mơ-xơ</rt></ruby> means to dive into something. It is common in reading tests.</p>
+  <div class="row" id="flex"><span>Left column sentence one. Left two.</span><span>Right column sentence.</span></div>
+
+  <div id="dynamic"></div>
+  <div class="spacer"></div>
+  <p id="far">This paragraph is far below the fold. It should only be translated after scrolling.</p>
+
+  <script defer src="chrome-shim.js"></script>
+  <script defer src="../src/translator.js"></script>
+  <script defer src="../src/segment.js"></script>
+  <script defer src="../src/content.js"></script>
+  <script>
+    setTimeout(() => {
+      const p = document.createElement('p')
+      p.id = 'added'
+      p.textContent = 'This paragraph was added later by the page. It must be translated too.'
+      document.getElementById('dynamic').append(p)
+    }, 1500)
+    setTimeout(() => {
+      // Like a framework re-render: the text is replaced and our translations disappear.
+      document.getElementById('p2').textContent = 'The page re-rendered this paragraph. It now has new text.'
+    }, 3000)
+  </script>
+</body>
+</html>
