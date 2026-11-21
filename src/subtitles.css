@@ -25,6 +25,16 @@ ipm-subs {
   transition: bottom 0.2s ease;
 }
 
+ipm-subs-status {
+  display: block !important;
+  padding: 0.1em 0.6em !important;
+  border-radius: 1em;
+  background: rgb(8 8 8 / 0.6) !important;
+  color: #f0b195 !important;
+  font-size: 0.6em;
+  pointer-events: none !important;
+}
+
 ipm-sub-line {
   display: flex !important;
   flex-direction: column;

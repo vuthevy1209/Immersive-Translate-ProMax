@@ -1,7 +1,8 @@
 // Bilingual captions on YouTube and Udemy: the translation shows right under each caption line.
 //
-// src/subtitle-hook.js copies every caption file the player downloads. From it we know every line ahead of time, so
-// lines are translated a minute or so before they are spoken, a whole sentence at a time (see subtitle-parse.js).
+// src/subtitle-hook.js copies every caption file the player downloads. As soon as one arrives we translate the whole
+// file, a whole sentence at a time (see subtitle-parse.js), starting from where the video is, so the translation is
+// ready before each line is spoken.
 //   YouTube: we draw the captions ourselves (<ipm-subs> over the video, timed by video.currentTime) and hide the
 //            player's own. That also turns the word-by-word auto-generated captions into whole lines.
 //   Udemy:   the player keeps drawing its captions; we put the translation inside each caption box it shows.
@@ -22,8 +23,7 @@
   const SITE = /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname) ? 'youtube' : 'udemy'
   const UDEMY_CUE = '[data-purpose="captions-cue-text"], [class*="caption"] > [class*="cue-text"]'
   const TICK_MS = 100
-  const AHEAD = 40 // sentences translated ahead of the one on screen
-  const BEHIND = 3
+  const IN_FLIGHT = 2 // translation requests at a time; the next batch is picked from where the video is now
   const BATCH_CHARS = 3000
   const BATCH_ITEMS = 40
   const RETRY_MS = 15000
@@ -32,7 +32,10 @@
 
   let settings = { targetLang: 'vi', subtitles: true }
   let timer = null
-  let tracks = [] // newest last: { videoId, cues, sentences, byKey }
+  let tracks = [] // newest last: { videoId, cues, sentences, byKey, total, done }
+  let ready = false // settings loaded
+  let focus = null // { track, at }: the track on screen and the index of the sentence showing
+  let inFlight = 0
   const onScreen = new Map() // fallback: key of a caption on screen -> { text, since, status, translation, error }
 
   // ---------- caption files from the hook ----------
@@ -59,7 +62,27 @@
     try {
       videoId = new URL(url).searchParams.get('v')
     } catch {}
-    return { videoId, cues, sentences, byKey }
+    const total = sentences.filter(s => s.status !== 'skip').length
+    return { videoId, cues, sentences, byKey, total, done: 0 }
+  }
+
+  function mainVideo() {
+    return document.querySelector('#movie_player video') ?? document.querySelector('video')
+  }
+
+  // Index of the last cue starting at or before `t` (ms), or -1.
+  function cueIndexAt(cues, t) {
+    let lo = 0
+    let hi = cues.length - 1
+    let last = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (cues[mid].start <= t) {
+        last = mid
+        lo = mid + 1
+      } else hi = mid - 1
+    }
+    return last
   }
 
   function onCaptionFile(e) {
@@ -74,6 +97,11 @@
     if (track.videoId) tracks = tracks.filter(t => t.videoId !== track.videoId)
     tracks.push(track)
     if (tracks.length > 8) tracks.shift()
+    // Start the whole file right away, from where the video is (a resumed video does not start at 0).
+    const video = mainVideo()
+    const cue = track.cues[Math.max(0, cueIndexAt(track.cues, (video?.currentTime ?? 0) * 1000))]
+    focus = { track, at: cue.sentence.index }
+    pump()
   }
 
   // ---------- translating ----------
@@ -84,30 +112,55 @@
         s.status = looksTranslatable(s.cues.map(c => c.text).join(' '), settings.targetLang) ? null : 'skip'
         s.cues.forEach(c => { c.translation = c.error = null })
       }
+      track.total = track.sentences.filter(s => s.status !== 'skip').length
+      track.done = 0
     }
     onScreen.clear()
   }
 
-  // Makes sure the sentences around `cue` are translated or on their way, the one on screen first.
+  // The sentence showing is what to translate first; the rest of the file follows from there.
   function ensureAround(track, cue) {
-    const { sentences } = track
-    const at = cue.sentence.index
-    const order = []
-    for (let i = at; i < Math.min(sentences.length, at + AHEAD); i++) order.push(sentences[i])
-    for (let i = Math.max(0, at - BEHIND); i < at; i++) order.push(sentences[i])
+    if (focus?.track !== track || focus.at !== cue.sentence.index) focus = { track, at: cue.sentence.index }
+    pump()
+  }
+
+  const sizeOf = s => s.cues.reduce((n, c) => n + c.text.length + 12, 0)
+  const due = (s, now) => !s.status || (s.status === 'error' && now >= s.retryAt)
+
+  // The next sentences to send: from the one showing to the end of its file, then back to the start; then other files.
+  // Picking each batch only when a request slot frees up means a seek moves the translation to the new spot at once.
+  function nextBatch() {
     const now = Date.now()
-    const todo = order.filter(s => !s.status || (s.status === 'error' && now >= s.retryAt))
-    if (!todo.length) return
-    todo.forEach(s => { s.status = 'loading' })
-    for (let i = 0; i < todo.length;) {
+    const order = focus ? [focus, ...tracks.filter(t => t !== focus.track).reverse().map(track => ({ track, at: 0 }))]
+      : [...tracks].reverse().map(track => ({ track, at: 0 }))
+    for (const { track, at } of order) {
+      if (track.done >= track.total) continue
+      const { sentences } = track
       const batch = []
       let size = 0
-      const sizeOf = s => s.cues.reduce((n, c) => n + c.text.length + 12, 0)
-      while (i < todo.length && batch.length < BATCH_ITEMS && (!batch.length || size + sizeOf(todo[i]) <= BATCH_CHARS)) {
-        size += sizeOf(todo[i])
-        batch.push(todo[i++])
+      for (let k = 0; k < sentences.length && batch.length < BATCH_ITEMS; k++) {
+        const s = sentences[(at + k) % sentences.length]
+        if (!due(s, now)) continue
+        if (batch.length && size + sizeOf(s) > BATCH_CHARS) break
+        size += sizeOf(s)
+        batch.push(s)
       }
-      translateSentences(batch)
+      if (batch.length) return { track, batch }
+    }
+    return null
+  }
+
+  function pump() {
+    if (!ready || !timer) return
+    while (inFlight < IN_FLIGHT) {
+      const next = nextBatch()
+      if (!next) return
+      next.batch.forEach(s => { s.status = 'loading' })
+      inFlight++
+      translateSentences(next.track, next.batch).finally(() => {
+        inFlight--
+        pump()
+      })
     }
   }
 
@@ -124,7 +177,7 @@
     return `Không dịch được: ${err.message}`
   }
 
-  async function translateSentences(batch) {
+  async function translateSentences(track, batch) {
     const lang = settings.targetLang
     try {
       const results = await request(batch.map(s => s.cues.map(c => c.text)))
@@ -138,6 +191,7 @@
           cue.error = null
         })
         s.status = 'done'
+        track.done++
       })
     } catch (err) {
       if (lang !== settings.targetLang) return
@@ -235,16 +289,7 @@
 
   // Cues are sorted by start and may overlap; returns the ones on screen at `t`, in order.
   function activeCues(cues, t) {
-    let lo = 0
-    let hi = cues.length - 1
-    let last = -1
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1
-      if (cues[mid].start <= t) {
-        last = mid
-        lo = mid + 1
-      } else hi = mid - 1
-    }
+    const last = cueIndexAt(cues, t)
     const active = []
     for (let i = last; i >= 0 && i > last - 20; i--) if (cues[i].end > t) active.unshift(cues[i])
     return { active, near: cues[Math.max(0, last)] }
@@ -294,12 +339,22 @@
     const bottom = Math.round(controlsShown ? box.bottom - bar.getBoundingClientRect().top + 8 : box.height * 0.04)
     const size = Math.round(Math.min(40, Math.max(14, box.height * 0.045)))
 
-    const sig = `${bottom}|${size}|${active.map(c => `${c.index}:${c.translation ?? ''}:${c.error ?? ''}`).join('|')}`
+    // While the file is still being translated, a small note above the captions says how far along it is.
+    const progress = track.done < track.total ? Math.floor((track.done * 100) / track.total) : null
+
+    const lines = active.map(c => `${c.index}:${c.translation ?? ''}:${c.error ?? ''}`).join('|')
+    const sig = `${bottom}|${size}|${progress}|${lines}`
     if (sig === overlaySig) return
     overlaySig = sig
     overlay.style.setProperty('bottom', `${bottom}px`, 'important')
     overlay.style.setProperty('font-size', `${size}px`, 'important')
-    overlay.replaceChildren(...active.map(overlayLine))
+    const children = active.map(overlayLine)
+    if (progress !== null) {
+      const status = document.createElement('ipm-subs-status')
+      status.textContent = `Đang dịch phụ đề… ${progress}%`
+      children.unshift(status)
+    }
+    overlay.replaceChildren(...children)
   }
 
   function youtubeOnScreen(player) {
@@ -363,6 +418,7 @@
 
   function start() {
     timer ??= setInterval(tick, TICK_MS)
+    pump()
   }
 
   function stop() {
@@ -387,6 +443,7 @@
 
   chrome.storage.sync.get(settings).then(saved => {
     settings = { ...settings, ...saved }
+    ready = true
     resetTranslations()
     if (settings.subtitles) start()
   })
@@ -397,6 +454,7 @@
       settings.targetLang = changes.targetLang.newValue
       resetTranslations()
       overlaySig = ''
+      pump()
     }
     if (changes.subtitles) {
       settings.subtitles = changes.subtitles.newValue

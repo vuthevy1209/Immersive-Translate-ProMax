@@ -29,7 +29,8 @@ Sau khi sửa code, bấm nút ↻ trên thẻ extension ở `chrome://extension
 - **Phụ đề song ngữ trên YouTube và Udemy** (công tắc *Phụ đề song ngữ* trong popup, bật sẵn): cứ bật phụ đề của video như bình thường, bản dịch hiện ngay dưới từng dòng phụ đề. Không cần bấm nút dịch trang.
   - **YouTube**: extension tự vẽ phụ đề (dòng gốc trắng, dòng dịch cam nhạt) và ẩn phụ đề gốc của YouTube. Phụ đề tự động (auto-generated) vốn hiện từng chữ được gom lại thành từng dòng trọn vẹn. Đổi ngôn ngữ phụ đề trong YouTube thì bản dịch đổi theo. Bôi đen chữ trong phụ đề để tra từ mà video không bị dừng.
   - **Udemy**: bản dịch nằm ngay trong khung phụ đề của Udemy, theo cỡ chữ và độ mờ bạn chỉnh trong Caption settings.
-  - Phụ đề được dịch trước khoảng 40 câu, mỗi lần một câu trọn vẹn (kể cả khi câu vắt qua nhiều dòng), rồi chia bản dịch về đúng từng dòng.
+  - Ngay khi player tải file phụ đề, extension dịch **cả file** luôn, bắt đầu từ đoạn video đang phát rồi đến hết, sau đó quay lại phần đầu. Video 1 tiếng dịch xong trong khoảng 10 giây, nên khi xem thì dòng nào cũng đã có bản dịch sẵn. Trên YouTube, lúc đang dịch có dòng nhỏ *Đang dịch phụ đề… 35%* phía trên phụ đề. Tua đi đâu thì đoạn đó được dịch trước.
+  - Mỗi lần dịch một câu trọn vẹn (kể cả khi câu vắt qua nhiều dòng), rồi chia bản dịch về đúng từng dòng.
 - Tắt dịch sẽ gỡ sạch bản dịch và trả trang về nguyên trạng.
 
 ## Cách hoạt động
