@@ -1,0 +1,95 @@
+/* Bilingual captions (src/subtitles.js). */
+
+/* YouTube: our overlay replaces the player's captions while it has a caption file for the video. */
+.html5-video-player[data-ipm-subs] .ytp-caption-window-container {
+  display: none !important;
+}
+
+ipm-subs {
+  position: absolute !important;
+  left: 2% !important;
+  right: 2% !important;
+  bottom: 4%;
+  z-index: 40 !important;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important; /* only the text itself takes the mouse, so the video stays clickable around it */
+  text-align: center !important;
+  font-family: "YouTube Noto", Roboto, Arial, Helvetica, sans-serif;
+  font-size: 18px;
+  line-height: 1.35 !important;
+  transition: bottom 0.2s ease;
+}
+
+ipm-sub-line {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12em;
+  max-width: 100%;
+}
+
+ipm-sub-orig,
+ipm-subs ipm-sub-tr {
+  display: block !important;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.06em 0.4em !important;
+  border-radius: 0.2em;
+  background: rgb(8 8 8 / 0.75) !important;
+  white-space: pre-wrap !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  cursor: text;
+}
+
+/* The translation: the light Claude clay used for translations on dark pages, a touch smaller than the original. */
+ipm-sub-tr {
+  display: block !important;
+  color: #f0b195 !important;
+  font-size: 0.92em;
+  font-style: normal !important;
+  text-align: center !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+}
+
+ipm-sub-orig {
+  color: #fff !important;
+}
+
+ipm-sub-tr[data-error] {
+  color: #ffb4a6 !important;
+  font-size: 0.75em;
+  opacity: 0.9;
+}
+
+/* Inside a caption box the player drew (Udemy, and YouTube without a caption file). */
+ipm-sub-tr[data-inline] {
+  margin: 0.15em 0 0 !important;
+  padding: 0 !important;
+  line-height: 1.35 !important;
+}
+
+/* Udemy's caption box is see-through (40% by default), so bright slides behind it wash out colored text. */
+ipm-sub-tr[data-inline="udemy"] {
+  color: #ffc6a8 !important;
+  text-shadow: 0 0 3px rgb(0 0 0 / 0.9), 0 1px 2px rgb(0 0 0 / 0.9);
+}
+
+/* YouTube's caption box has a fixed width sized to the original line: center ours on it and let it be wider. */
+ipm-sub-tr[data-inline="youtube"] {
+  position: relative !important;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 90vw;
+  padding: 0.06em 0.4em !important;
+  border-radius: 0.2em;
+  background: rgb(8 8 8 / 0.75) !important;
+  white-space: normal !important;
+}

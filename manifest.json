@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ProMax Translate",
   "version": "0.1.0",
-  "description": "Dịch song ngữ từng câu: bản dịch hiện ngay dưới mỗi câu gốc.",
+  "description": "Dịch song ngữ từng câu: bản dịch hiện ngay dưới mỗi câu gốc. Phụ đề song ngữ trên YouTube và Udemy.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -32,6 +32,36 @@
         "src/content.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.youtube-nocookie.com/*",
+        "https://*.udemy.com/*"
+      ],
+      "js": [
+        "src/subtitle-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.youtube-nocookie.com/*",
+        "https://*.udemy.com/*"
+      ],
+      "js": [
+        "src/segment.js",
+        "src/subtitle-parse.js",
+        "src/subtitles.js"
+      ],
+      "css": [
+        "src/subtitles.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "permissions": [

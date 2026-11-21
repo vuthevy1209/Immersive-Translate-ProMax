@@ -29,6 +29,10 @@ chrome.runtime.onInstalled.addListener(async () => {
   for (const tab of await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] })) {
     inject(tab.id).catch(() => {}) // e.g. the Web Store or a discarded tab
   }
+  const subtitles = chrome.runtime.getManifest().content_scripts.find(s => s.js.includes('src/subtitles.js'))
+  for (const tab of await chrome.tabs.query({ url: subtitles.matches })) {
+    injectSubtitles(tab.id).catch(() => {})
+  }
 })
 
 // The Vocab Flashcard plugin in Obsidian listens here and inserts the card into the note that is open.
@@ -58,6 +62,15 @@ function reply(promise, sendResponse) {
 async function inject(tabId) {
   await chrome.scripting.insertCSS({ target: { tabId }, files: ['src/content.css'] })
   await chrome.scripting.executeScript({ target: { tabId }, files: ['src/segment.js', 'src/content.js'] })
+}
+
+// Bilingual captions on YouTube and Udemy. The hook only catches caption files the player downloads from now on;
+// for the video already open, subtitles.js translates the captions shown on screen instead.
+async function injectSubtitles(tabId) {
+  const target = { tabId, allFrames: true }
+  await chrome.scripting.executeScript({ target, files: ['src/subtitle-hook.js'], world: 'MAIN' })
+  await chrome.scripting.insertCSS({ target, files: ['src/subtitles.css'] })
+  await chrome.scripting.executeScript({ target, files: ['src/segment.js', 'src/subtitle-parse.js', 'src/subtitles.js'] })
 }
 
 async function sendToTab(tabId, message) {

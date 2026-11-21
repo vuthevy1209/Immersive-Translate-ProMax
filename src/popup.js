@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id)
 const [[tab], settings] = await Promise.all([
   chrome.tabs.query({ active: true, currentWindow: true }),
-  chrome.storage.sync.get({ clickHighlight: true, selectLookup: true }),
+  chrome.storage.sync.get({ clickHighlight: true, selectLookup: true, subtitles: true }),
 ])
 
 async function send(message) {
@@ -23,7 +23,7 @@ function showUnsupported() {
   $('error').hidden = false
 }
 
-for (const [id, key] of [['highlight', 'clickHighlight'], ['select', 'selectLookup']]) {
+for (const [id, key] of [['highlight', 'clickHighlight'], ['select', 'selectLookup'], ['subtitles', 'subtitles']]) {
   $(id).checked = settings[key]
   $(id).addEventListener('change', () => chrome.storage.sync.set({ [key]: $(id).checked }))
 }

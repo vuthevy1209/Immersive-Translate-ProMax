@@ -32,9 +32,13 @@
 
   // ---------- reading the DOM ----------
 
+  // Video captions on YouTube and Udemy belong to src/subtitles.js.
+  const CAPTIONS = '.ytp-caption-window-container, [data-purpose="captions-cue-text"], [class*="captions-display"], ' +
+    '[data-purpose="media-player-container"] [class*="caption"]'
+
   function isSkipped(el) {
     return SKIP_TAGS.has(el.localName) || el.localName.startsWith('ipm-') || el.isContentEditable ||
-      el.hasAttribute('data-immersive-translate-translation-element-mark')
+      el.hasAttribute('data-immersive-translate-translation-element-mark') || el.matches(CAPTIONS)
   }
 
   function isInsideSkipped(el) {
