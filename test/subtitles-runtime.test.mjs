@@ -8,11 +8,20 @@ import vm from 'node:vm'
 const source = name => readFileSync(new URL(`../src/${name}`, import.meta.url), 'utf8')
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-function setup({ currentTime }) {
+function setup({ currentTime, playing = true }) {
   const document = new EventTarget()
-  const video = { currentTime }
+  document.documentElement = { append() {} }
+  // A video element: it records pause() and play(), and fires 'play' like a real one.
+  const video = Object.assign(new EventTarget(), {
+    currentTime, paused: !playing, isConnected: true, log: [],
+    pause() { this.paused = true; this.log.push('pause') },
+    play() { this.paused = false; this.log.push('play'); this.dispatchEvent(new Event('play')); return Promise.resolve() },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 360 }),
+  })
   document.querySelector = selector => (selector.includes('video') ? video : null)
   document.querySelectorAll = () => []
+  document.body = {}
+  document.createTreeWalker = () => ({ nextNode: () => false }) // a page with no caption text on it
   const requests = []
   let inFlight = 0
   let maxInFlight = 0
@@ -31,13 +40,18 @@ function setup({ currentTime }) {
   }
   const context = vm.createContext({
     document, chrome, location: { hostname: 'www.udemy.com', search: '', pathname: '/course/x' },
-    CustomEvent, URL, URLSearchParams, setInterval, clearInterval, setTimeout, console,
+    CustomEvent, Event, URL, URLSearchParams, setInterval, clearInterval, setTimeout, console, NodeFilter: { SHOW_TEXT: 4 },
+  })
+  // The progress note over the video is a real element in the browser; here a stand-in with the same surface.
+  document.createElement = () => ({
+    style: { setProperty() {} }, firstChild: { textContent: '' }, parentNode: null,
+    setAttribute() {}, append(...kids) { this.firstChild = kids[0] ?? this.firstChild }, addEventListener() {}, remove() {},
   })
   context.window = context
   for (const name of ['segment.js', 'subtitle-parse.js', 'subtitles.js']) vm.runInContext(source(name), context)
   const sendFile = (url, text) => document.dispatchEvent(new CustomEvent('ipm:subs-data', { detail: JSON.stringify({ url, text }) }))
   const stop = () => { chrome.runtime.id = undefined } // the next tick sees a dead extension and tears down
-  return { requests, sendFile, stop, maxInFlight: () => maxInFlight }
+  return { requests, sendFile, stop, video, maxInFlight: () => maxInFlight }
 }
 
 // 200 one-second cues, each its own sentence.
@@ -59,7 +73,31 @@ test('translates the whole caption file as soon as it arrives, starting where th
   assert.equal(sent[0], 'This is line number 100.', 'the line on screen goes first')
   assert.equal(sent[99], 'This is line number 199.')
   assert.equal(sent[100], 'This is line number 0.', 'then back to the start')
-  assert.ok(page.maxInFlight() <= 2, 'no more than two requests at a time')
+  assert.ok(page.maxInFlight() <= 3, 'no more than three requests at a time')
+})
+
+test('holds the video until the caption file is translated, then plays it again', async () => {
+  const page = setup({ currentTime: 0, playing: true })
+  await sleep(10)
+  page.sendFile('https://cdn.example/captions-en.vtt', vtt)
+  assert.equal(page.video.paused, true, 'paused as soon as the file arrives')
+  page.video.play() // autoplay or a click while we wait
+  assert.equal(page.video.paused, true, 'kept paused')
+  for (let i = 0; i < 100 && page.video.paused; i++) await sleep(20)
+  page.stop()
+  assert.equal(page.video.paused, false, 'playing again')
+  assert.equal(page.requests.flat().length, 200, 'after every line was translated')
+})
+
+test('does not start a video the viewer had paused', async () => {
+  const page = setup({ currentTime: 0, playing: false })
+  await sleep(10)
+  page.sendFile('https://cdn.example/captions-en.vtt', vtt)
+  for (let i = 0; i < 100 && page.requests.flat().length < 200; i++) await sleep(20)
+  await sleep(250)
+  page.stop()
+  assert.equal(page.video.paused, true)
+  assert.ok(!page.video.log.includes('play'))
 })
 
 test('ignores the thumbnail sprite file', async () => {

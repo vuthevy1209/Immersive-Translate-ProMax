@@ -7,6 +7,7 @@
   Object.defineProperty(window, '__ipmSubsHook', { value: true })
 
   const WANTED = /\/api\/timedtext|\.vtt(?:[?#]|$)/i
+  const VTT_TYPE = /\btext\/vtt\b/i // a caption file served from a URL that does not end in .vtt
   const DATA_EVENT = 'ipm:subs-data'
   const REPLAY_EVENT = 'ipm:subs-replay'
   const recent = [] // the reader loads after the player may have fetched; it asks for these again on start
@@ -43,9 +44,10 @@
 
   XMLHttpRequest.prototype.send = function () {
     const url = urls.get(this)
-    if (url && WANTED.test(url)) {
+    if (url) {
       this.addEventListener('load', () => {
         if (this.status !== 200) return
+        if (!WANTED.test(url) && !VTT_TYPE.test(this.getResponseHeader('content-type') ?? '')) return
         try {
           const type = this.responseType
           if (type === '' || type === 'text') post(url, this.responseText)
@@ -61,11 +63,10 @@
   window.fetch = function (input) {
     const promise = originalFetch.apply(this, arguments)
     const url = resolve(input instanceof Request ? input.url : input)
-    if (WANTED.test(url)) {
-      promise.then(res => {
-        if (res.ok) res.clone().text().then(text => post(res.url || url, text), () => {})
-      }, () => {})
-    }
+    promise.then(res => {
+      if (!res.ok || (!WANTED.test(url) && !VTT_TYPE.test(res.headers.get('content-type') ?? ''))) return
+      res.clone().text().then(text => post(res.url || url, text), () => {})
+    }, () => {})
     return promise
   }
 })()

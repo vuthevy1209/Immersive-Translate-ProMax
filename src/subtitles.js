@@ -1,8 +1,8 @@
 // Bilingual captions on YouTube and Udemy: the translation shows right under each caption line.
 //
 // src/subtitle-hook.js copies every caption file the player downloads. As soon as one arrives we translate the whole
-// file, a whole sentence at a time (see subtitle-parse.js), starting from where the video is, so the translation is
-// ready before each line is spoken.
+// file, a whole sentence at a time (see subtitle-parse.js), starting from where the video is. The video waits (paused,
+// with a progress note over it) until the file is done, so no line ever shows before its translation.
 //   YouTube: we draw the captions ourselves (<ipm-subs> over the video, timed by video.currentTime) and hide the
 //            player's own. That also turns the word-by-word auto-generated captions into whole lines.
 //   Udemy:   the player keeps drawing its captions; we put the translation inside each caption box it shows.
@@ -21,9 +21,12 @@
   const { parseTrack, groupSentences, distribute, keyOf } = IPMSubs
 
   const SITE = /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname) ? 'youtube' : 'udemy'
-  const UDEMY_CUE = '[data-purpose="captions-cue-text"], [class*="caption"] > [class*="cue-text"]'
+  // Caption text in Udemy's players: the course preview, and the lecture page (a band under the video, "well").
+  const UDEMY_CUE = '[data-purpose="captions-cue-text"], [class*="caption"] > [class*="cue-text"], ' +
+    '[data-purpose="shaka-video-player"] [class*="well-module--text"]'
   const TICK_MS = 100
-  const IN_FLIGHT = 2 // translation requests at a time; the next batch is picked from where the video is now
+  const IN_FLIGHT = 3 // translation requests at a time; the next batch is picked from where the video is now
+  const GATE_MAX_MS = 30000 // the longest we hold the video for its captions
   const BATCH_CHARS = 3000
   const BATCH_ITEMS = 40
   const RETRY_MS = 15000
@@ -102,6 +105,7 @@
     const cue = track.cues[Math.max(0, cueIndexAt(track.cues, (video?.currentTime ?? 0) * 1000))]
     focus = { track, at: cue.sentence.index }
     pump()
+    if (ready) startGate(track)
   }
 
   // ---------- translating ----------
@@ -243,10 +247,99 @@
       ensureAround(tracks[i], cue)
       return shown(cue)
     }
+    const match = cuesShowing(key)
+    if (match) {
+      ensureAround(match.track, match.cues[0])
+      const states = match.cues.map(shown)
+      if (states.some(state => !state)) return null
+      return states.find(state => state.error) ?? { translation: states.map(state => state.translation).join(' ') }
+    }
     return shown(translateOnScreen(text))
   }
 
+  // The player may show a line that is not exactly one cue of the file: two cues at once, or part of a long one. Look
+  // at the cues around the current time for the ones that make up what is on screen.
+  function cuesShowing(key) {
+    const video = mainVideo()
+    const track = tracks.at(-1)
+    if (!video || !track) return null
+    const { cues } = track
+    const now = cueIndexAt(cues, video.currentTime * 1000)
+    const last = Math.min(cues.length - 1, now + 1)
+    for (let i = Math.max(0, now - 3); i <= last; i++) {
+      let joined = ''
+      for (let j = i; j < Math.min(cues.length, i + 4); j++) {
+        joined += keyOf(cues[j].text)
+        if (joined === key) return { track, cues: cues.slice(i, j + 1) }
+        if (!key.startsWith(joined)) break
+      }
+    }
+    for (let i = Math.max(0, now - 1); i <= last; i++) {
+      if (keyOf(cues[i].text).includes(key)) return { track, cues: [cues[i]] }
+    }
+    return null
+  }
+
   const shown = ({ translation, error }) => (translation ? { translation } : error ? { error } : null)
+
+  // ---------- hold the video until its captions are translated ----------
+
+  let gate = null // { track, video, since, resume, onPlay, el }
+
+  // Pauses the video (and keeps it paused against autoplay) until `track` is fully translated.
+  function startGate(track) {
+    const video = mainVideo()
+    if (!video || !settings.subtitles || track.done >= track.total) return
+    const id = SITE === 'youtube' && currentVideoId()
+    if (id && track.videoId !== id) return // a caption file for some other video (a preview, the next one)
+    const resume = !video.paused || (gate?.video === video && gate.resume) // a newer file replacing one we wait for
+    endGate(false)
+    const g = { track, video, since: Date.now(), resume, el: null }
+    g.onPlay = () => {
+      g.resume = true // the player's autoplay, or the viewer pressing play: play once the captions are ready
+      video.pause()
+    }
+    video.addEventListener('play', g.onPlay)
+    video.pause()
+    gate = g
+  }
+
+  function endGate(resume) {
+    if (!gate) return
+    const { video, onPlay, el } = gate
+    video.removeEventListener('play', onPlay)
+    el?.remove()
+    if (resume && gate.resume) video.play().catch(() => {})
+    gate = null
+  }
+
+  // Lets the video go once the file is translated (or nothing more can be done for now, or it takes too long), and
+  // meanwhile shows the progress over the video with a button to watch right away.
+  function tickGate() {
+    if (!gate) return
+    const { track, video } = gate
+    const waiting = track.sentences.some(s => !s.status || s.status === 'loading')
+    if (track.done >= track.total || !waiting || !tracks.includes(track) || !video.isConnected ||
+      Date.now() - gate.since > GATE_MAX_MS) return endGate(true)
+    if (!gate.el) {
+      const el = document.createElement('ipm-subs-gate')
+      el.setAttribute('translate', 'no')
+      el.className = 'notranslate'
+      const label = document.createElement('span')
+      const skip = document.createElement('button')
+      skip.type = 'button'
+      skip.textContent = 'Xem ngay'
+      skip.addEventListener('click', () => endGate(true))
+      el.append(label, skip)
+      shieldFromPlayer(el)
+      gate.el = el
+    }
+    if (gate.el.parentNode !== floatParent()) floatParent().append(gate.el)
+    const r = video.getBoundingClientRect()
+    gate.el.style.setProperty('left', `${Math.round(r.left + r.width / 2)}px`, 'important')
+    gate.el.style.setProperty('top', `${Math.round(r.top + r.height / 2)}px`, 'important')
+    gate.el.firstChild.textContent = `Đang dịch phụ đề… ${Math.floor((track.done * 100) / Math.max(1, track.total))}%`
+  }
 
   // ---------- YouTube: our own caption overlay ----------
 
@@ -340,7 +433,7 @@
     const size = Math.round(Math.min(40, Math.max(14, box.height * 0.045)))
 
     // While the file is still being translated, a small note above the captions says how far along it is.
-    const progress = track.done < track.total ? Math.floor((track.done * 100) / track.total) : null
+    const progress = track.done < track.total && !gate ? Math.floor((track.done * 100) / track.total) : null
 
     const lines = active.map(c => `${c.index}:${c.translation ?? ''}:${c.error ?? ''}`).join('|')
     const sig = `${bottom}|${size}|${progress}|${lines}`
@@ -417,29 +510,25 @@
     return bestDistance < 300 ? best : null
   }
 
-  let foundHost = null // caption box found by its text; Udemy reuses it for the next lines
-  let missedSig = '' // lines we already searched for without finding them
+  let foundHost = null // caption box found by its text; Udemy keeps using it for the next lines
+  let searchedAt = 0
+  const SEARCH_EVERY_MS = 300 // Udemy fills the box ~0.3 s after a line starts, and empties it between lines
 
   function udemyOnScreen() {
     const video = mainVideo()
     if (!video) return []
     const byClass = [...document.querySelectorAll(UDEMY_CUE)]
     if (byClass.length) return byClass.map(host => ({ host, text: ownText(host) }))
+    if (foundHost?.isConnected) return [{ host: foundHost, text: textWithoutOurs(foundHost) }]
     const track = tracks.at(-1)
-    if (!track) return []
-    const keys = activeCues(track.cues, video.currentTime * 1000).active.map(c => keyOf(c.text))
+    if (!track || Date.now() - searchedAt < SEARCH_EVERY_MS) return []
+    searchedAt = Date.now()
+    // The line starting now, and the one before it in case the player is a little behind.
+    const t = video.currentTime * 1000
+    const keys = [...activeCues(track.cues, t).active, ...activeCues(track.cues, t - 1000).active].map(c => keyOf(c.text))
     if (!keys.length) return []
-    if (foundHost?.isConnected && keys.includes(keyOf(textWithoutOurs(foundHost)))) {
-      return [{ host: foundHost, text: textWithoutOurs(foundHost) }]
-    }
-    const sig = keys.join('|')
-    if (sig === missedSig) return []
     foundHost = findCaptionByText(keys, video)
-    if (!foundHost) {
-      missedSig = sig
-      return []
-    }
-    return [{ host: foundHost, text: textWithoutOurs(foundHost) }]
+    return foundHost ? [{ host: foundHost, text: textWithoutOurs(foundHost) }] : []
   }
 
   // True when a box of the player cuts `el` off, e.g. a caption band of fixed height. Boxes above the player (the
@@ -464,25 +553,59 @@
     return fs && !['video', 'iframe'].includes(fs.localName) ? fs : document.documentElement
   }
 
-  function placeAbove(el, host) {
-    if (el.parentNode !== floatParent()) floatParent().append(el)
+  // A caption box with no room for our line (a band of fixed height under the video): we hide its text and draw the
+  // caption ourselves in its place, the original with the translation under it, growing upward over the video.
+  const floating = new WeakMap() // such a caption box -> our block standing in for it (null until made)
+  const hostOf = new WeakMap() // our block -> the caption box it stands in for
+
+  function floatBlock(host, text, state) {
+    let block = floating.get(host)
+    if (!block) {
+      block = document.createElement('ipm-sub-float')
+      block.setAttribute('translate', 'no')
+      block.className = 'notranslate'
+      shieldFromPlayer(block)
+      floating.set(host, block)
+      hostOf.set(block, host)
+    }
+    host.setAttribute('data-ipm-hidden', '')
+    const sig = `${text}\u0001${state?.translation ?? ''}\u0001${state?.error ?? ''}`
+    if (block.dataset.sig !== sig) {
+      block.dataset.sig = sig
+      const original = document.createElement('ipm-sub-orig')
+      original.textContent = text.replace(/\s+/g, ' ').trim()
+      block.replaceChildren(original, ...(state ? [makeTranslationEl(state)] : []))
+    }
+    if (block.parentNode !== floatParent()) floatParent().append(block)
     const r = host.getBoundingClientRect()
-    el.style.setProperty('left', `${Math.round(r.left + r.width / 2)}px`, 'important')
-    el.style.setProperty('bottom', `${Math.round(innerHeight - r.top + 4)}px`, 'important')
+    const videoWidth = mainVideo()?.getBoundingClientRect().width ?? 0
     const { fontSize, fontFamily } = getComputedStyle(host)
-    if (el.style.fontSize !== fontSize) el.style.setProperty('font-size', fontSize, 'important')
-    if (el.style.fontFamily !== fontFamily) el.style.setProperty('font-family', fontFamily, 'important')
+    const styles = {
+      left: `${Math.round(r.left + r.width / 2)}px`,
+      bottom: `${Math.round(innerHeight - r.bottom)}px`,
+      'max-width': `${Math.round(Math.max(r.width, videoWidth * 0.9, 320))}px`,
+      'font-size': fontSize,
+      'font-family': fontFamily,
+    }
+    for (const [k, v] of Object.entries(styles)) {
+      if (block.style.getPropertyValue(k) !== v) block.style.setProperty(k, v, 'important')
+    }
+    return block
   }
 
-  const floating = new WeakMap() // caption box that would cut our line off -> our line floating just above it
+  // The translation is smaller than the original line.
+  const smaller = fontSize => fontSize && `${Math.round(parseFloat(fontSize) * 0.8 * 10) / 10}px`
 
   // The player re-renders its caption boxes all the time and may wipe our element; every tick puts it back.
   function syncInline(items) {
     const keep = new Set()
     for (const { host, text, fontSize } of items) {
-      const floats = floating.has(host)
-      let el = floats ? floating.get(host) : [...host.children].find(c => c.localName === 'ipm-sub-tr')
       const state = translationOf(text)
+      if (floating.has(host)) {
+        keep.add(floatBlock(host, text, state))
+        continue
+      }
+      let el = [...host.children].find(c => c.localName === 'ipm-sub-tr')
       if (!state) {
         el?.remove()
         continue
@@ -491,23 +614,24 @@
       if (!el || el.textContent !== value || el.hasAttribute('data-error') !== Boolean(state.error)) {
         el?.remove()
         el = makeTranslationEl(state)
-        el.setAttribute('data-inline', floats ? 'float' : SITE)
+        el.setAttribute('data-inline', SITE)
         shieldFromPlayer(el)
-        if (floats) floating.set(host, el)
       }
-      if (floats) placeAbove(el, host)
-      else {
-        if (fontSize && el.style.fontSize !== fontSize) el.style.setProperty('font-size', fontSize, 'important')
-        if (host.lastElementChild !== el) host.append(el)
-        if (isClipped(el)) {
-          el.remove()
-          floating.set(host, null) // from the next tick on, this box gets a floating line
-          continue
-        }
+      const size = smaller(fontSize)
+      if (size && el.style.fontSize !== size) el.style.setProperty('font-size', size, 'important')
+      if (host.lastElementChild !== el) host.append(el)
+      if (isClipped(el)) {
+        el.remove()
+        floating.set(host, null) // from the next tick on, we draw this caption ourselves
+        continue
       }
       keep.add(el)
     }
-    for (const el of inline) if (!keep.has(el)) el.remove()
+    for (const el of inline) {
+      if (keep.has(el)) continue
+      el.remove()
+      hostOf.get(el)?.removeAttribute('data-ipm-hidden')
+    }
     inline = keep
   }
 
@@ -515,6 +639,7 @@
 
   function tick() {
     if (!alive()) return teardown()
+    tickGate()
     if (SITE === 'youtube') tickYouTube()
     else syncInline(udemyOnScreen())
   }
@@ -527,6 +652,7 @@
   function stop() {
     clearInterval(timer)
     timer = null
+    endGate(true)
     removeOverlay()
     syncInline([])
   }
@@ -549,6 +675,7 @@
     ready = true
     resetTranslations()
     if (settings.subtitles) start()
+    if (tracks.length) startGate(tracks.at(-1)) // a caption file that came before the settings
   })
 
   chrome.storage.onChanged.addListener((changes, area) => {
