@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Subtitles demo</title>
+  <!--
+    Runs src/subtitles.js on a fake video player shaped like Udemy's expanded view: the captions sit in a band of fixed
+    height under the video, with class names subtitles.js does not know. Open through a local server, e.g.
+    http://localhost:8765/test/subtitles-demo.html?fake (?fake: "[vi] ..." translations instead of calling Google).
+    Add &overlay for captions drawn over the video instead, with room for the translation.
+  -->
+  <link rel="stylesheet" href="../src/content.css">
+  <link rel="stylesheet" href="../src/subtitles.css">
+  <style>
+    body { margin: 24px; font: 15px/1.5 system-ui, sans-serif; background: #fff; }
+    .player { position: relative; width: 720px; background: #000; }
+    video { display: block; width: 720px; height: 405px; background: linear-gradient(135deg, #2b3a55, #6a4c93); }
+    .band { height: 3.4em; overflow: hidden; display: grid; place-items: center; background: #1c1d1f; color: #fff; font-size: 22px; text-align: center; }
+    .overlay .band { position: absolute; left: 0; right: 0; bottom: 12px; height: auto; overflow: visible; background: none; }
+    .overlay .line { background: rgb(0 0 0 / 0.6); padding: 2px 8px; }
+    .line { user-select: none; }
+  </style>
+</head>
+<body>
+  <div class="player" id="player">
+    <video id="video"></video>
+    <div class="band"><div class="line" id="line"></div></div>
+  </div>
+  <p id="clock"></p>
+
+  <script src="chrome-shim.js"></script>
+  <script src="../src/translator.js"></script>
+  <script src="../src/segment.js"></script>
+  <script src="../src/subtitle-parse.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search)
+    if (params.has('overlay')) document.getElementById('player').classList.add('overlay')
+    window.chrome.storage.sync.get = async defaults => ({ ...defaults })
+
+    const lines = [
+      'Welcome back to the course.',
+      'In this lecture we will look at network devices,',
+      'it could be a phone or any other device that you have connected to a network,',
+      'it could be routers and switches.',
+      'Let us start with the router.',
+    ]
+    const vtt = 'WEBVTT\n\n' + lines.map((text, i) => `00:00:${String(i * 3).padStart(2, '0')}.000 --> 00:00:${String(i * 3 + 3).padStart(2, '0')}.000\n${text}`).join('\n\n')
+
+    // A video that plays without a media file: currentTime follows the clock and loops over the captions.
+    const video = document.getElementById('video')
+    const start = performance.now()
+    Object.defineProperty(video, 'currentTime', { get: () => ((performance.now() - start) / 1000) % (lines.length * 3) })
+    setInterval(() => {
+      const i = Math.floor(video.currentTime / 3)
+      const line = document.getElementById('line')
+      if (line.firstChild?.data !== lines[i]) {
+        if (line.firstChild?.nodeType === Node.TEXT_NODE) line.firstChild.data = lines[i] // like React: same node, new text
+        else line.prepend(lines[i])
+      }
+      document.getElementById('clock').textContent = `t = ${video.currentTime.toFixed(1)}s`
+    }, 50)
+
+    // What src/subtitle-hook.js sends when the player downloads the caption file.
+    addEventListener('load', () => {
+      document.dispatchEvent(new CustomEvent('ipm:subs-data', { detail: JSON.stringify({ url: location.origin + '/captions-en.vtt', text: vtt }) }))
+    })
+  </script>
+  <script src="../src/subtitles.js"></script>
+  <script src="../src/content.js"></script>
+</body>
+</html>

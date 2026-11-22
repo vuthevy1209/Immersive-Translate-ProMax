@@ -378,16 +378,110 @@
     return text
   }
 
-  function udemyOnScreen() {
-    if (!document.querySelector('video')) return []
-    return [...document.querySelectorAll(UDEMY_CUE)].map(host => ({ host, text: ownText(host) }))
+  // All of an element's text except our translation inside it.
+  function textWithoutOurs(el) {
+    let text = ''
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) if (!walker.currentNode.parentElement?.closest('ipm-sub-tr')) text += walker.currentNode.data
+    return text
   }
+
+  // Udemy's class names are generated and its captions move with the layout (over the video, in a band under it in
+  // the expanded view, full screen). Without a known class, look for the element whose text is the line the caption
+  // file says is showing now; the transcript panel can hold the same line, so take the one closest to the video.
+  function findCaptionByText(keys, video) {
+    const v = video.getBoundingClientRect()
+    let best = null
+    let bestDistance = Infinity
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      const k = keyOf(node.data)
+      const key = k.length > 1 && keys.find(K => K.includes(k))
+      if (!key || node.parentElement?.closest('script, style, ipm-sub-tr, ipm-translation, ipm-popup')) continue
+      for (let el = node.parentElement; el && el !== document.body; el = el.parentElement) {
+        const ek = keyOf(textWithoutOurs(el))
+        if (ek.length > key.length) break
+        if (ek !== key) continue
+        const r = el.getBoundingClientRect()
+        if (!r.height) break
+        const dx = Math.max(0, v.left - r.right, r.left - v.right)
+        const dy = Math.max(0, v.top - r.bottom, r.top - v.bottom)
+        if (Math.hypot(dx, dy) < bestDistance) {
+          best = el
+          bestDistance = Math.hypot(dx, dy)
+        }
+        break
+      }
+    }
+    return bestDistance < 300 ? best : null
+  }
+
+  let foundHost = null // caption box found by its text; Udemy reuses it for the next lines
+  let missedSig = '' // lines we already searched for without finding them
+
+  function udemyOnScreen() {
+    const video = mainVideo()
+    if (!video) return []
+    const byClass = [...document.querySelectorAll(UDEMY_CUE)]
+    if (byClass.length) return byClass.map(host => ({ host, text: ownText(host) }))
+    const track = tracks.at(-1)
+    if (!track) return []
+    const keys = activeCues(track.cues, video.currentTime * 1000).active.map(c => keyOf(c.text))
+    if (!keys.length) return []
+    if (foundHost?.isConnected && keys.includes(keyOf(textWithoutOurs(foundHost)))) {
+      return [{ host: foundHost, text: textWithoutOurs(foundHost) }]
+    }
+    const sig = keys.join('|')
+    if (sig === missedSig) return []
+    foundHost = findCaptionByText(keys, video)
+    if (!foundHost) {
+      missedSig = sig
+      return []
+    }
+    return [{ host: foundHost, text: textWithoutOurs(foundHost) }]
+  }
+
+  // True when a box of the player cuts `el` off, e.g. a caption band of fixed height. Boxes above the player (the
+  // page scrolling the video half out of view) do not count.
+  function isClipped(el) {
+    const r = el.getBoundingClientRect()
+    const video = mainVideo()
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const style = getComputedStyle(a)
+      if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+        const box = a.getBoundingClientRect()
+        if (r.top < box.top - 1 || r.bottom > box.bottom + 1 || r.left < box.left - 1 || r.right > box.right + 1) return true
+      }
+      if (video && a.contains(video)) break
+    }
+    return false
+  }
+
+  // In full screen only the full-screen element is drawn, so a floating line must live inside it.
+  function floatParent() {
+    const fs = document.fullscreenElement
+    return fs && !['video', 'iframe'].includes(fs.localName) ? fs : document.documentElement
+  }
+
+  function placeAbove(el, host) {
+    if (el.parentNode !== floatParent()) floatParent().append(el)
+    const r = host.getBoundingClientRect()
+    el.style.setProperty('left', `${Math.round(r.left + r.width / 2)}px`, 'important')
+    el.style.setProperty('bottom', `${Math.round(innerHeight - r.top + 4)}px`, 'important')
+    const { fontSize, fontFamily } = getComputedStyle(host)
+    if (el.style.fontSize !== fontSize) el.style.setProperty('font-size', fontSize, 'important')
+    if (el.style.fontFamily !== fontFamily) el.style.setProperty('font-family', fontFamily, 'important')
+  }
+
+  const floating = new WeakMap() // caption box that would cut our line off -> our line floating just above it
 
   // The player re-renders its caption boxes all the time and may wipe our element; every tick puts it back.
   function syncInline(items) {
     const keep = new Set()
     for (const { host, text, fontSize } of items) {
-      let el = [...host.children].find(c => c.localName === 'ipm-sub-tr')
+      const floats = floating.has(host)
+      let el = floats ? floating.get(host) : [...host.children].find(c => c.localName === 'ipm-sub-tr')
       const state = translationOf(text)
       if (!state) {
         el?.remove()
@@ -397,11 +491,20 @@
       if (!el || el.textContent !== value || el.hasAttribute('data-error') !== Boolean(state.error)) {
         el?.remove()
         el = makeTranslationEl(state)
-        el.setAttribute('data-inline', SITE)
+        el.setAttribute('data-inline', floats ? 'float' : SITE)
         shieldFromPlayer(el)
+        if (floats) floating.set(host, el)
       }
-      if (fontSize && el.style.fontSize !== fontSize) el.style.setProperty('font-size', fontSize, 'important')
-      if (host.lastElementChild !== el) host.append(el)
+      if (floats) placeAbove(el, host)
+      else {
+        if (fontSize && el.style.fontSize !== fontSize) el.style.setProperty('font-size', fontSize, 'important')
+        if (host.lastElementChild !== el) host.append(el)
+        if (isClipped(el)) {
+          el.remove()
+          floating.set(host, null) // from the next tick on, this box gets a floating line
+          continue
+        }
+      }
       keep.add(el)
     }
     for (const el of inline) if (!keep.has(el)) el.remove()

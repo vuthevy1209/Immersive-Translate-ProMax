@@ -433,9 +433,22 @@
     speechSynthesis.speak(utterance)
   }
 
+  // In full screen the browser draws only the full-screen element (a video player), so the popup has to live inside
+  // it. That element is position: fixed at the viewport's corner, so coordinates in it are viewport coordinates.
+  function popupParent() {
+    const fs = document.fullscreenElement
+    return fs && !['video', 'iframe', 'img', 'canvas'].includes(fs.localName) ? fs : document.documentElement
+  }
+
+  // Where (0, 0) of the popup's coordinates is, relative to the viewport.
+  const popupOrigin = () => (popupParent() === document.documentElement ? { x: scrollX, y: scrollY } : { x: 0, y: 0 })
+
   // A shadow root keeps the page's CSS away from the popup and ours away from the page.
   function ensurePopup() {
-    if (popupHost?.isConnected) return
+    if (popupHost && popupCard) {
+      if (popupHost.parentNode !== popupParent()) popupParent().append(popupHost)
+      return
+    }
     popupHost = document.createElement('ipm-popup')
     popupHost.setAttribute('translate', 'no')
     setHostStyle(popupHost, { position: 'absolute', 'z-index': '2147483647', display: 'block', margin: '0', padding: '0', border: '0' })
@@ -444,7 +457,7 @@
     popupCard = h('div', 'card')
     popupCard.setAttribute('role', 'dialog')
     root.append(popupCard)
-    document.documentElement.append(popupHost)
+    popupParent().append(popupHost)
 
     // Drag by the top row (the word or the selected text); the buttons there stay clickable.
     let drag = null
@@ -452,7 +465,8 @@
       if (e.button !== 0 || !e.target.closest('.head') || e.target.closest('button')) return
       e.preventDefault() // no text selection on the page while dragging
       const rect = popupHost.getBoundingClientRect()
-      drag = { x: e.clientX, y: e.clientY, left: rect.left + scrollX, top: rect.top + scrollY }
+      const o = popupOrigin()
+      drag = { x: e.clientX, y: e.clientY, left: rect.left + o.x, top: rect.top + o.y, o }
       popupCard.setPointerCapture(e.pointerId)
       popupCard.classList.add('dragging')
     })
@@ -460,8 +474,8 @@
       if (!drag) return
       popupMoved = true
       setHostStyle(popupHost, {
-        left: `${clamp(drag.left + e.clientX - drag.x, scrollX + 8, scrollX + innerWidth - popupCard.offsetWidth - 8)}px`,
-        top: `${clamp(drag.top + e.clientY - drag.y, scrollY + 8, scrollY + innerHeight - popupCard.offsetHeight - 8)}px`,
+        left: `${clamp(drag.left + e.clientX - drag.x, drag.o.x + 8, drag.o.x + innerWidth - popupCard.offsetWidth - 8)}px`,
+        top: `${clamp(drag.top + e.clientY - drag.y, drag.o.y + 8, drag.o.y + innerHeight - popupCard.offsetHeight - 8)}px`,
       })
     })
     const endDrag = () => {
@@ -511,9 +525,10 @@
   function placePopup(anchor) {
     const width = popupCard.offsetWidth
     const height = popupCard.offsetHeight
-    const left = Math.max(scrollX + 8, Math.min(anchor.left, scrollX + innerWidth - width - 8))
+    const { x: ox, y: oy } = popupOrigin()
+    const left = Math.max(ox + 8, Math.min(anchor.left, ox + innerWidth - width - 8))
     let top = anchor.bottom + 8
-    if (top + height > scrollY + innerHeight - 8 && anchor.top - 8 - height > scrollY + 8) top = anchor.top - 8 - height
+    if (top + height > oy + innerHeight - 8 && anchor.top - 8 - height > oy + 8) top = anchor.top - 8 - height
     popupHost.style.setProperty('left', `${left}px`, 'important')
     popupHost.style.setProperty('top', `${top}px`, 'important')
   }
@@ -622,7 +637,8 @@
     if (text.length > 1000 || !looksTranslatable(text, settings.targetLang)) return
     const rect = range.getBoundingClientRect()
     if (!rect.width && !rect.height) return
-    showLookup(text, { left: rect.left + scrollX, top: rect.top + scrollY, bottom: rect.bottom + scrollY })
+    const o = popupOrigin()
+    showLookup(text, { left: rect.left + o.x, top: rect.top + o.y, bottom: rect.bottom + o.y })
   }
 
   const insidePopup = e => popupHost != null && e.composedPath().includes(popupHost)
@@ -942,6 +958,7 @@
     document.removeEventListener('mouseup', onSelectMouseUp, true)
     document.removeEventListener('mousedown', onSelectMouseDown, true)
     document.removeEventListener('keydown', onSelectKeyDown, true)
+    document.removeEventListener('fullscreenchange', hidePopup)
     document.removeEventListener(TAKEOVER, teardown)
     strays.disconnect()
   }
@@ -964,6 +981,7 @@
   document.addEventListener('mouseup', onSelectMouseUp, true)
   document.addEventListener('mousedown', onSelectMouseDown, true)
   document.addEventListener('keydown', onSelectKeyDown, true)
+  document.addEventListener('fullscreenchange', hidePopup) // its coordinates no longer apply
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return

@@ -28,7 +28,8 @@ Sau khi sửa code, bấm nút ↻ trên thẻ extension ở `chrome://extension
   - **Nút Obsidian** trong popup (cạnh nút loa): thêm dòng `- **từ**: nghĩa` vào **cuối note đang mở trong Obsidian**. Thêm xong nút hiện dấu ✓ trong 1 giây rồi trở lại, bấm lần nữa là thêm lần nữa. Không thêm được (Obsidian chưa mở, chưa mở note nào, hoặc note đang ở chế độ đọc) thì hiện dấu ✗ đỏ kèm lý do. Thẻ `[!vocab]` đầy đủ thì dựng sau bằng skill `vocab-illustrate`. Cần mở Obsidian và bật plugin Vocab Flashcard (plugin nhận dữ liệu ở `127.0.0.1:27190`, chỉ nhận từ extension).
 - **Phụ đề song ngữ trên YouTube và Udemy** (công tắc *Phụ đề song ngữ* trong popup, bật sẵn): cứ bật phụ đề của video như bình thường, bản dịch hiện ngay dưới từng dòng phụ đề. Không cần bấm nút dịch trang.
   - **YouTube**: extension tự vẽ phụ đề (dòng gốc trắng, dòng dịch cam nhạt) và ẩn phụ đề gốc của YouTube. Phụ đề tự động (auto-generated) vốn hiện từng chữ được gom lại thành từng dòng trọn vẹn. Đổi ngôn ngữ phụ đề trong YouTube thì bản dịch đổi theo. Bôi đen chữ trong phụ đề để tra từ mà video không bị dừng.
-  - **Udemy**: bản dịch nằm ngay trong khung phụ đề của Udemy, theo cỡ chữ và độ mờ bạn chỉnh trong Caption settings.
+  - **Udemy**: bản dịch nằm ngay trong khung phụ đề của Udemy, theo cỡ chữ và độ mờ bạn chỉnh trong Caption settings. Ở chế độ phóng to (phụ đề nằm trong dải tối dưới video) mà dải không đủ chỗ cho dòng dịch, dòng dịch nổi ngay phía trên dải. Phụ đề Udemy giờ bôi đen được để tra từ.
+  - Full màn hình: phụ đề song ngữ và popup tra từ khi bôi đen đều hiện bình thường.
   - Ngay khi player tải file phụ đề, extension dịch **cả file** luôn, bắt đầu từ đoạn video đang phát rồi đến hết, sau đó quay lại phần đầu. Video 1 tiếng dịch xong trong khoảng 10 giây, nên khi xem thì dòng nào cũng đã có bản dịch sẵn. Trên YouTube, lúc đang dịch có dòng nhỏ *Đang dịch phụ đề… 35%* phía trên phụ đề. Tua đi đâu thì đoạn đó được dịch trước.
   - Mỗi lần dịch một câu trọn vẹn (kể cả khi câu vắt qua nhiều dòng), rồi chia bản dịch về đúng từng dòng.
 - Tắt dịch sẽ gỡ sạch bản dịch và trả trang về nguyên trạng.
@@ -58,7 +59,7 @@ node --test test/*.test.mjs
 python3 -m http.server 8765
 ```
 
-Sau đó mở `http://localhost:8765/test/demo.html?fake`. `test/plain.html` là trang tĩnh để thử bản extension đã cài.
+Sau đó mở `http://localhost:8765/test/demo.html?fake`. `test/plain.html` là trang tĩnh để thử bản extension đã cài. `test/subtitles-demo.html?fake` giả lập player Udemy ở chế độ phóng to (dải phụ đề cao cố định, tên class lạ) để thử phụ đề song ngữ; thêm `&overlay` cho phụ đề đè lên video.
 
 ## Giới hạn hiện tại
 

@@ -103,3 +103,26 @@ ipm-sub-tr[data-inline="youtube"] {
   background: rgb(8 8 8 / 0.75) !important;
   white-space: normal !important;
 }
+
+/* Floating just above a caption box that has no room for a second line (see isClipped in subtitles.js). */
+ipm-sub-tr[data-inline="float"] {
+  position: fixed !important;
+  z-index: 2147483646 !important;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(90vw, 1100px);
+  margin: 0 !important;
+  padding: 0.08em 0.45em !important;
+  border-radius: 0.2em;
+  background: rgb(8 8 8 / 0.8) !important;
+  color: #ffc6a8 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+}
+
+/* Udemy's captions cannot be selected by default; selecting a word in them opens the dictionary popup. */
+[data-purpose="captions-cue-text"],
+[class*="caption"] > [class*="cue-text"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
